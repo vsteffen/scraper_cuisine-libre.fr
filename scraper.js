@@ -92,15 +92,15 @@ function collectRecipesLink($) {
 
 
 function scrapRecipe() {
-  console.log("KOUKOU")
-  // pagesToVisit.forEach(function(value) {
-  //   console.log("Val(" +  + ") = " value);
-  // });
+  // console.log("KOUKOU")
+  pagesToVisit.forEach(function(value) {
+    console.log("Val(" +  + ") = " value);
+  });
   i = -1;
-  for(var i2= 0; i2 < pagesToVisit.length; i2++)
-  {
-       console.log("Val(" + i2 + ") = " + pagesToVisit[i2]);
-  }
+  // for(var i2= 0; i2 < pagesToVisit.length; i2++)
+  // {
+  //      console.log("Val(" + i2 + ") = " + pagesToVisit[i2]);
+  // }
   loopForScrap();
 }
 
@@ -108,8 +108,12 @@ function loopForScrap() {
   setTimeout(function () {
     i++;
     scrapRecipe(pagesToVisit[i], function(err){
-      if (i < pagesToVisit.length) {
-       loopForScrap();
+      if (err)
+        return console.log(err);
+      else {
+        if (i < pagesToVisit.length) {
+          loopForScrap();
+        }
       }
     });
   }, TIME_TO_REQUEST)
@@ -125,13 +129,79 @@ function scrapRecipe(url, callback) {
     }
     else {
       var $ = cheerio.load(body);
-      collectRecipesLink($);
+      collectTitle($);
+      collectAuthor($);
+      collectIngredient($);
+      collectImg($);
+      collectPreparationTime($);
+      collectInstructions($);
+      collectCookingTime($);
       callback();
-      if (i * PER_PAGE > maxPage) {
-       scrapRecipe();
+      if (i == pagesToVisit.length) {
+       last_function();
       }
     }
   });
+}
+
+function collectTitle($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectAuthor($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectIngredient($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectImg($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectPreparationTime($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectInstructions($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function collectCookingTime($) {
+  var relativeLinks = $("#recettes > ul > li > a");
+    console.log("Found " + relativeLinks.length + " relative links for Title");
+    relativeLinks.each(function() {
+        console.log("Title = " + ($(this).attr('href')));
+    });
+}
+
+function last_function() {
+  console.log("Success to scrap data and add to database")
 }
 
 function testNode(callback) {
