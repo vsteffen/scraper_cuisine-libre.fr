@@ -5,6 +5,11 @@ var URL = require('url-parse');
 var START_URL = "http://www.cuisine-libre.fr/?page=recherche&recherche=&lang=fr&tri_recettes=titre&debut_recettes=";
 var BASE_URL = "http://www.cuisine-libre.fr/";
 var SEARCH_WORD = "poulet1";
+var TEST_URL1 = "http://www.cuisine-libre.fr/cheesecake-saveurs-abricots-et-pistaches?lang=fr";
+var TEST_URL2 = "http://www.cuisine-libre.fr/cuisson-des-topinambours";
+var TEST_URL3 = "http://www.cuisine-libre.fr/frites-de-panais-a-la-cannelle?lang=fr";
+var TEST_URL4 = "http://www.cuisine-libre.fr/le-baiser-de-la-princesse";
+
 var MAX_PAGES_TO_VISIT = 1;
 var PER_PAGE = 50;
 var TIME_TO_REQUEST = 3000;
@@ -15,7 +20,134 @@ var numPagesVisited = 0;
 var pagesToVisit = [];
 var maxPage = 0;
 
-getAllUrl();
+// getAllUrl();
+
+scrapTest();
+
+function scrapTest() {
+  console.log("Test Scrap ")
+  request(TEST_URL1, function(err, res, body) {
+    if (err) {
+      callback(err);
+    }
+    else if (res.statusCode !== 200) {
+      callback("Bad res from server (" + res.statusCode + ")");
+    }
+    else {
+      var $ = cheerio.load(body);
+      var selectAuthor = $(".auteur");
+      if (selectAuthor.length)
+        console.log("AUTHOR1 = [" + selectAuthor.text().substr(7) + "]")
+      else
+        console.log("AUTHOR1 = [cuisine-libre.fr]")
+
+      var selectTitle = $("#preparation > h2");
+      if (selectTitle.length)
+        console.log("TITLE = [" + selectTitle.text() + "]")
+      else
+        console.log("TITLE = [ERROR]")
+
+      var selectIngredient = $("#ingredients > div > ul > li");
+      selectIngredient.each(function(i) {
+        console.log("INGREDIENT[" + i + "] = [" + $(this).text().substr(1) + "]")
+      });
+
+      var selectImg = $(".photo");
+      if (selectImg.length)
+        console.log("IMG = [" + selectImg.attr("src") + "]")
+      else
+        console.log("IMG = []")
+
+      var selectPreparationTime = $(".duree_preparation.prepTime");
+      if (selectPreparationTime.length) {
+        var timeStr = selectPreparationTime.text().substr(14);
+        if (timeStr.indexOf("?") >= 0)
+          console.log("PREP TIME = [UNKNOWN]")
+        else {
+          getTime(timeStr, function(time) {
+            console.log("PREP TIME = [" + time + "] TOTAL");
+          });
+        }
+      }
+      else
+        console.log("PREP TIME = [NO]")
+
+      var selectCookingTime = $(".duree_cuisson.cookTime");
+      if (selectCookingTime.length) {
+        var timeStr = selectCookingTime.text().substr(10);
+        if (timeStr.indexOf("?") >= 0)
+          console.log("COOK TIME = [UNKNOWN]")
+        else {
+          getTime(timeStr, function(time) {
+            console.log("COOK TIME = [" + time + "] TOTAL");
+          });
+        }
+      }
+      else
+        console.log("COOK TIME = [NO]")
+
+      var selectWaitingTime = $(".duree_marinade");
+      if (selectWaitingTime.length) {
+        var timeStr = selectWaitingTime.text().substr(10);
+        if (timeStr.indexOf("?") >= 0)
+          console.log("WAIT TIME = [UNKNOWN]")
+        else {
+          getTime(timeStr, function(time) {
+            console.log("WAIT TIME = [" + time + "] TOTAL");
+          });
+        }
+      }
+      else
+        console.log("WAIT TIME = [NO]")
+
+
+      // collectImg($);
+      // collectPreparationTime($);
+      // collectInstructions($);
+      // collectCookingTime($);
+
+      // var relativeLinks = $(".auteur");
+      // relativeLinks.each(function() {
+      //   console.log("AUTHOR = [" + $(this).text() + "]")
+      //   maxPage = $(this).text();
+      // });
+      // var relativeLinks = $(".auteur");
+      // relativeLinks.each(function() {
+      //   console.log("AUTHOR = [" + $(this).text() + "]")
+      //   maxPage = $(this).text();
+      // });
+      // var relativeLinks = $(".auteur");
+      // relativeLinks.each(function() {
+      //   console.log("AUTHOR = [" + $(this).text() + "]")
+      //   maxPage = $(this).text();
+      // });
+    }
+  });
+}
+
+function getTime(timeStr, callback) {
+  var time = 0;
+  var index1;
+  var index2;
+  if ((index1 = timeStr.indexOf("J")) >= 0 || (index2 = timeStr.indexOf("j")) >= 0) {
+    time = parseInt(timeStr) * 60 * 24;
+    if (index1 >= 0)
+      timeStr = timeStr.substr(index1 + 1);
+    else
+      timeStr = timeStr.substr(index2 + 1);
+  }
+  if ((index1 = timeStr.indexOf("H")) >= 0 || (index2 = timeStr.indexOf("h")) >= 0) {
+    time += parseInt(timeStr) * 60;
+    if (index1 >= 0)
+      timeStr = timeStr.substr(index1 + 1);
+    else
+      timeStr = timeStr.substr(index2 + 1);
+  }
+  if ((index1 = timeStr.indexOf("M")) >= 0 || (index2 = timeStr.indexOf("m")) >= 0) {
+    time += parseInt(timeStr);
+  }
+  callback(time);
+}
 
 function getAllUrl() {
   console.log("START")
@@ -93,8 +225,10 @@ function collectRecipesLink($) {
 
 function scrapRecipe() {
   // console.log("KOUKOU")
+  var index = 0;
   pagesToVisit.forEach(function(value) {
-    console.log("Val(" +  + ") = " value);
+    index++;
+    console.log("Val(" + index + ") = " + value);
   });
   i = -1;
   // for(var i2= 0; i2 < pagesToVisit.length; i2++)
