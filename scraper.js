@@ -26,7 +26,7 @@ scrapTest();
 
 function scrapTest() {
   console.log("Test Scrap ")
-  request(TEST_URL1, function(err, res, body) {
+  request(TEST_URL4, function(err, res, body) {
     if (err) {
       callback(err);
     }
@@ -100,7 +100,31 @@ function scrapTest() {
       else
         console.log("WAIT TIME = [NO]")
 
+      var selectTitleIngredient = $("#ingredients > h2");
+      if (selectTitleIngredient.length) {
+        console.log("TITLE INGREDIENT = [" + selectTitleIngredient.text() + "]")
+      }
+      else
+        console.log("TITLE INGREDIENT = [ERROR]")
 
+      var selectHint = $("#ps p");
+      var hintStr = "";
+      if (selectHint.length) {
+        hintStr += selectHint.text();
+      }
+      selectHint = $("#variations p");
+      if (selectHint.length) {
+        if (hintStr === "")
+          hintStr += selectHint.text();
+        else
+          hintStr += '\n' + selectHint.text();
+      }
+      if (hintStr !== "") {
+        console.log("HINT = [" + hintStr + "]")
+      }
+      else {
+        console.log("HINT = [NO]")
+      }
       // collectImg($);
       // collectPreparationTime($);
       // collectInstructions($);
