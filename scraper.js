@@ -2,27 +2,248 @@ var request = require('request');
 var cheerio = require('cheerio');
 var URL = require('url-parse');
 
-var START_URL = "http://www.cuisine-libre.fr/?page=recherche&recherche=&lang=fr&tri_recettes=titre&debut_recettes=";
-var BASE_URL = "http://www.cuisine-libre.fr/";
-var SEARCH_WORD = "poulet1";
+var START_URL = "http://www.cuisine-libre.fr/?page=recherche&recherche=&lang=fr&tri_recettes=titre&debut_recettes="; // In use ?
+var BASE_URL = "http://www.cuisine-libre.fr/"; // In use ?
+var SEARCH_WORD = "poulet1"; // In use ?
 var TEST_URL1 = "http://www.cuisine-libre.fr/cheesecake-saveurs-abricots-et-pistaches?lang=fr";
 var TEST_URL2 = "http://www.cuisine-libre.fr/cuisson-des-topinambours";
 var TEST_URL3 = "http://www.cuisine-libre.fr/frites-de-panais-a-la-cannelle?lang=fr";
 var TEST_URL4 = "http://www.cuisine-libre.fr/le-baiser-de-la-princesse";
+var INGREDIENT_URL = "http://www.cuisine-libre.fr/ingredients";
 
-var MAX_PAGES_TO_VISIT = 1;
-var PER_PAGE = 50;
+var MAX_PAGES_TO_VISIT = 1; // In use ?
+var PER_PAGE = 50; // In use ?
 var TIME_TO_REQUEST = 3000;
-var i = 0;
+var i = 0; // have to rename
 
-var pagesVisited = {};
-var numPagesVisited = 0;
 var pagesToVisit = [];
-var maxPage = 0;
+var ingredientLink;
+var indexIngredient = 143;
+var lastPagIngredient = 0;
+var indexPagIngredient = 0;
+
+var mongoClient = require('mongodb').MongoClient
+var assert = require('assert'); // In use ?
+var DB_URL = 'mongodb://localhost:27017/scraper_cuisine_libre_fr';
+var url = 'mongodb://localhost:27017/scraper_cuisine_libre_fr'; // In use ?
+var COLL_INGREDIENT = "ingredient";
+var COLL_RECIPE = "recipe";
+
+var initialCallback; // In use ?
+
+var pagesVisited = {}; // In use ?
+var numPagesVisited = 0; // In use ?
+var maxPage = 0; // In use ?
+
+/*
+DB SCHEMA
+--> recipe
+  --> _id
+  --> ingredient_id
+  --> url
+  --> selectTitle
+  --> selectAuthor
+  --> selectImg
+  --> selectTitleIngredient
+  --> selectIngredient
+  --> selectPreparationTime
+  --> selectCookingTime
+  --> selectWaitingTime
+  --> selectHint
+  --> selectLicense
+
+--> ingredient
+  --> _id
+  --> name
+  --> family ?
+  --> recipe_id {
+          url : "LOL",
+          url : "MDR"
+      }
+*/
+
+var findDocuments = function(db, callback) {
+  // Get the documents collection
+  var collection = db.collection('documents');
+  // Find some documents
+  collection.find({}).toArray(function(err, docs) {
+    assert.equal(err, null);
+    // assert.equal(2, docs.length);
+    console.log("Found the following records");
+    console.dir(docs);
+    callback(docs);
+  });
+}
+
+var deleteDocument = function(db, callback) {
+  // Get the documents collection
+  var collection = db.collection('documents');
+  // Insert some documents
+  collection.deleteMany({ a : {$gte:0, $lt:4}}, function(err, result) {
+    assert.equal(err, null);
+    console.log("Removed the document with the field a equal to 0 <= 4");
+    callback(result);
+  });
+}
+
+var insertDocuments = function(db, callback) {
+  // Get the documents collection
+  var collection = db.collection('documents');
+  // Insert some documents
+  collection.insertMany([
+    {a : 1}, {a : 2}, {a : 3}
+  ], function(err, result) {
+    assert.equal(err, null);
+    assert.equal(3, result.result.n);
+    assert.equal(3, result.ops.length);
+    console.log("Inserted 3 documents into the document collection");
+    callback(result);
+  });
+}
+
+
+
+// Use connect method to connect to the Server
+
+function dbTest() {
+  mongoClient.connect(url, function(err, db) {
+    assert.equal(null, err);
+    console.log("Connected correctly to server");
+
+    insertDocuments(db, function() {
+      deleteDocument(db, function() {
+        findDocuments(db, function() {
+          db.close();
+        });
+      });
+    });
+  });
+}
+
 
 // getAllUrl();
+// dbTest();
+// scrapTest();
+getAllIngredient(function(err) {
+  if (err)
+    return console.log(err);
+  else {
+    console.log("GOODJOB BROW")
+  }
+});
 
-scrapTest();
+function getAllIngredient(callback) {
+  console.log("Test Scrap ")
+  request(INGREDIENT_URL, function(err, res, body) {
+    if (err) {
+      callback(err);
+    }
+    else if (res.statusCode !== 200) {
+      callback("Error while indexing all ingredients, url (" + INGREDIENT_URL + ") incorrect: Bad res from server (" + res.statusCode + ")");
+    }
+    else {
+      var $ = cheerio.load(body);
+      ingredientLink = $("#index > ul a");
+      console.log("Found " + ingredientLink.length + " ingredients, launch crawler to get recipes associated to ingredient ...");
+      loopForIngredient(function(err) {
+        if (err)
+          callback(err);
+        callback(null);
+      });
+    }
+  });
+}
+
+function loopForIngredient(callback) {
+  indexIngredient++;
+  if (indexIngredient < ingredientLink.length) {
+    setTimeout(function () {
+      scrapIngredient(function(err){
+        if (err)
+          callback(err);
+        else {
+          loopForIngredient(callback);
+        }
+      });
+    }, TIME_TO_REQUEST)
+  }
+  else
+    callback(null);
+}
+
+function scrapIngredient(callback) {
+  var url = ingredientLink.eq(indexIngredient).attr("href");
+  request("http://www.cuisine-libre.fr/" + url, function(err, res, body) {
+    if (err) {
+      callback(err);
+    }
+    else if (res.statusCode !== 200) {
+      callback("Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
+    }
+    else {
+      var $ = cheerio.load(body);
+      var pagIngredient = $("#recettes > p.pagination a");
+      console.log("  --> Url = " + url);
+      if (pagIngredient.length) {
+        lastPagIngredient = pagIngredient.last().text();
+      }
+      loopForPagIngredient(url.slice(0, url.indexOf("/")), function(err) {
+        callback(null);
+      })
+    }
+  });
+}
+
+function loopForPagIngredient(url, callback) {
+  setTimeout(function () {
+    collectUrlIngredient(url, function(err){
+      if (err)
+        callback(err);
+      else {
+        if (indexPagIngredient > lastPagIngredient) {
+          indexPagIngredient = 0;
+          lastPagIngredient = 0;
+          callback(null);
+        }
+        else {
+          loopForPagIngredient(url, callback);
+        }
+      }
+    });
+  }, TIME_TO_REQUEST)
+}
+
+function collectUrlIngredient(url, callback) {
+  url = url + "?lang=fr&debut_recettes=" + indexPagIngredient;
+  request("http://www.cuisine-libre.fr/" + url, function(err, res, body) {
+    if (err) {
+      callback(err);
+    }
+    else if (res.statusCode !== 200) {
+      callback("Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
+    }
+    else {
+      var $ = cheerio.load(body);
+      var relativeLinks = $("#recettes > ul > li > a");
+      console.log("    Found " + relativeLinks.length + " relative links - Page (" + (lastPagIngredient == 0 ? "1 / 1" : (indexPagIngredient / PER_PAGE + 1) + " / " + (lastPagIngredient / PER_PAGE + 1)) + ")");
+      relativeLinks.each(function(index, link) {
+        var found = pagesToVisit.some(function (elem) {
+          return elem === $(link).attr('href');
+        });
+        if (!found) {
+          console.log("      Pushing --> " + $(link).attr('href'))
+          pagesToVisit.push($(link).attr('href'));
+        }
+        else {
+          console.log("      This url already exist ! --> " + $(link).attr('href'))
+        }
+      });
+      indexPagIngredient += PER_PAGE;
+      callback(null);
+    }
+  });
+}
+
 
 function scrapTest() {
   console.log("Test Scrap ")
@@ -125,26 +346,17 @@ function scrapTest() {
       else {
         console.log("HINT = [NO]")
       }
+
+      var selectLicense = $("#licence > p > a");
+      if (selectLicense.length) {
+        console.log("LICENSE = [" + selectLicense.text() + "]")
+      }
+      else
+        console.log("LICENSE = [ERROR]")
       // collectImg($);
       // collectPreparationTime($);
       // collectInstructions($);
       // collectCookingTime($);
-
-      // var relativeLinks = $(".auteur");
-      // relativeLinks.each(function() {
-      //   console.log("AUTHOR = [" + $(this).text() + "]")
-      //   maxPage = $(this).text();
-      // });
-      // var relativeLinks = $(".auteur");
-      // relativeLinks.each(function() {
-      //   console.log("AUTHOR = [" + $(this).text() + "]")
-      //   maxPage = $(this).text();
-      // });
-      // var relativeLinks = $(".auteur");
-      // relativeLinks.each(function() {
-      //   console.log("AUTHOR = [" + $(this).text() + "]")
-      //   maxPage = $(this).text();
-      // });
     }
   });
 }
@@ -265,7 +477,7 @@ function scrapRecipe() {
 function loopForScrap() {
   setTimeout(function () {
     i++;
-    scrapRecipe(pagesToVisit[i], function(err){
+    getDataRecipe(pagesToVisit[i], function(err){
       if (err)
         return console.log(err);
       else {
@@ -277,7 +489,7 @@ function loopForScrap() {
   }, TIME_TO_REQUEST)
 }
 
-function scrapRecipe(url, callback) {
+function getDataRecipe(url, callback) {
   request(BASE_URL + url, function(err, res, body) {
     if (err) {
       callback(err);
