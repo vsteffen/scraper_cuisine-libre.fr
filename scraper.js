@@ -3,7 +3,7 @@ var cheerio = require('cheerio');
 var URL = require('url-parse');
 
 var START_URL = "http://www.cuisine-libre.fr/?page=recherche&recherche=&lang=fr&tri_recettes=titre&debut_recettes="; // In use ?
-var BASE_URL = "http://www.cuisine-libre.fr/"; // In use ?
+var BASE_URL = "http://www.cuisine-libre/";// In use ?
 var SEARCH_WORD = "poulet1"; // In use ?
 var TEST_URL1 = "http://www.cuisine-libre.fr/cheesecake-saveurs-abricots-et-pistaches?lang=fr";
 var TEST_URL2 = "http://www.cuisine-libre.fr/cuisson-des-topinambours";
@@ -22,7 +22,12 @@ var indexIngredient = 143;
 var lastPagIngredient = 0;
 var indexPagIngredient = 0;
 
+// +-+-+-+-+-+-+-+ DB SETUP +-+-+-+-+-+-+-+
 var mongoClient = require('mongodb').MongoClient
+var db;
+var coll_ingredient;
+var coll_recipe;
+var idIngredientTmp;
 var assert = require('assert'); // In use ?
 var DB_URL = 'mongodb://localhost:27017/scraper_cuisine_libre_fr';
 var url = 'mongodb://localhost:27017/scraper_cuisine_libre_fr'; // In use ?
@@ -37,114 +42,150 @@ var maxPage = 0; // In use ?
 
 /*
 DB SCHEMA
---> recipe
-  --> _id
-  --> ingredient_id
-  --> url
-  --> selectTitle
-  --> selectAuthor
-  --> selectImg
-  --> selectTitleIngredient
-  --> selectIngredient
-  --> selectPreparationTime
-  --> selectCookingTime
-  --> selectWaitingTime
-  --> selectHint
-  --> selectLicense
+└-> collection recipe
+  └-> _id
+  └-> url : string unique
+  └-> title : string
+  └-> author : string
+  └-> img : string (path)
+  └-> ingredient
+    └-> id : char **
+    └-> title : string
+    └-> list : string
+  └-> time
+    └-> preparationTime : int 32
+    └-> cookingTime : int 32
+    └-> waitingTime : int 32
+  └-> hint : string
+  └-> tag : char **
+  └-> license : string
 
---> ingredient
-  --> _id
-  --> name
-  --> family ?
-  --> recipe_id {
-          url : "LOL",
-          url : "MDR"
-      }
+└-> collection ingredient
+  └-> _id
+  └-> name : string unique
+  └-> family ?
+  └-> tag ?
+  └-> recipe_id : char **
 */
 
-var findDocuments = function(db, callback) {
-  // Get the documents collection
-  var collection = db.collection('documents');
-  // Find some documents
-  collection.find({}).toArray(function(err, docs) {
+function initIngredient(callback) {
+  coll_ingredient = db.collection(COLL_INGREDIENT);
+  coll_ingredient.find({}).toArray(function(err, docs) {
     assert.equal(err, null);
-    // assert.equal(2, docs.length);
-    console.log("Found the following records");
-    console.dir(docs);
-    callback(docs);
-  });
-}
-
-var deleteDocument = function(db, callback) {
-  // Get the documents collection
-  var collection = db.collection('documents');
-  // Insert some documents
-  collection.deleteMany({ a : {$gte:0, $lt:4}}, function(err, result) {
-    assert.equal(err, null);
-    console.log("Removed the document with the field a equal to 0 <= 4");
-    callback(result);
-  });
-}
-
-var insertDocuments = function(db, callback) {
-  // Get the documents collection
-  var collection = db.collection('documents');
-  // Insert some documents
-  collection.insertMany([
-    {a : 1}, {a : 2}, {a : 3}
-  ], function(err, result) {
-    assert.equal(err, null);
-    assert.equal(3, result.result.n);
-    assert.equal(3, result.ops.length);
-    console.log("Inserted 3 documents into the document collection");
-    callback(result);
-  });
-}
-
-
-
-// Use connect method to connect to the Server
-
-function dbTest() {
-  mongoClient.connect(url, function(err, db) {
-    assert.equal(null, err);
-    console.log("Connected correctly to server");
-
-    insertDocuments(db, function() {
-      deleteDocument(db, function() {
-        findDocuments(db, function() {
-          db.close();
-        });
+    if (!docs.length) {
+      coll_ingredient.createIndex(
+        { name : 1}, { unique : true},
+        function(err, result) {
+          assert.equal(err, null);
+          console.log("      DB created with structure, continue scraping to fill it.")
+          callback();
       });
+    }
+    else {
+      console.log("     DB already created, continue scraping for update.");
+      callback();
+    }
+  });
+}
+
+var removeIngredient = function(db, callback) {
+  coll_ingredient.remove(function(err, result) {
+    assert.equal(err, null);
+    console.log("All ingredient document have been removed!");
+    callback(result);
+  });
+}
+
+function insertTEST(callback) {
+  // var collection = db.collection(COLL_INGREDIENT);
+  coll_ingredient.insertOne({name : 3}, function(err, result) {
+    // assert.equal(err, null);
+    // console.log("OBJECT RETURN -> " + result)
+    console.log("INSERT TEST : n -> " + result.result.n + " / length -> " + result.ops.length)
+    // assert.equal(3, result.result.n);
+    // assert.equal(3, result.ops.length);
+    // console.log("  DB TEST: inserted new ingredient");
+    callback();
+  });
+}
+
+function insertNewIngredient(name, callback) {
+  coll_ingredient.findOne({name : name}, function(err, doc) {
+      if (doc) {
+        console.log("     --> DB: ingredient " + name + " already set.");
+        idIngredientTmp = doc._id;
+        callback();
+      }
+      else {
+        coll_ingredient.insertOne({name : name, recipe_id : []}, function(err, res) {
+          if (err) {
+            callback(err);
+          }
+          else {
+            console.log("     --> DB: inserted new ingredient -> " + name);
+            idIngredientTmp = res.insertedId;
+            callback();
+          }
+        });
+      }
+  });
+}
+
+
+function connectToDB(callback) {
+  console.log("Scrapper cuisine-libre.fr v1.0 (https://github.com/vsteffen/scraper_cuisine-libre.fr)\n")
+  mongoClient.connect(url, function(err, res) {
+    db = res;
+    if (err)
+      callback(err);
+    else {
+      console.log("[OK] Connected correctly to server");
+      initIngredient(function() {
+        callback();
+      });
+    }
+  });
+}
+
+function cleanDb(callback) {
+  var collection = db.collection(COLL_INGREDIENT);
+  collection.remove(function(err, result) {
+    assert.equal(err, null);
+    console.log("All ingredients document have been removed!");
+    collection = db.collection(COLL_RECIPE);
+    collection.remove(function(err, result) {
+      assert.equal(err, null);
+      console.log("All recipes document have been removed!");
+      callback();
     });
   });
 }
 
-
-// getAllUrl();
-// dbTest();
 // scrapTest();
-getAllIngredient(function(err) {
+connectToDB(function(err) {
   if (err)
     return console.log(err);
-  else {
-    console.log("GOODJOB BROW")
-  }
+    getAllIngredient(function(err) {
+      if (err)
+      return console.log(err);
+      else {
+        console.log("GOODJOB BROW")
+      }
+    });
 });
 
 function getAllIngredient(callback) {
-  console.log("Test Scrap ")
   request(INGREDIENT_URL, function(err, res, body) {
     if (err) {
       callback(err);
     }
     else if (res.statusCode !== 200) {
-      callback("Error while indexing all ingredients, url (" + INGREDIENT_URL + ") incorrect: Bad res from server (" + res.statusCode + ")");
+      callback("[KO] Error while indexing all ingredients, url (" + INGREDIENT_URL + ") incorrect: Bad res from server (" + res.statusCode + ")");
     }
     else {
       var $ = cheerio.load(body);
       ingredientLink = $("#index > ul a");
-      console.log("Found " + ingredientLink.length + " ingredients, launch crawler to get recipes associated to ingredient ...");
+      console.log("[OK] Found " + ingredientLink.length + " ingredients, launch crawler to get recipes associated to ingredient ...");
       loopForIngredient(function(err) {
         if (err)
           callback(err);
@@ -158,6 +199,7 @@ function loopForIngredient(callback) {
   indexIngredient++;
   if (indexIngredient < ingredientLink.length) {
     setTimeout(function () {
+      console.log("");
       scrapIngredient(function(err){
         if (err)
           callback(err);
@@ -173,25 +215,34 @@ function loopForIngredient(callback) {
 
 function scrapIngredient(callback) {
   var url = ingredientLink.eq(indexIngredient).attr("href");
-  request("http://www.cuisine-libre.fr/" + url, function(err, res, body) {
+  var name = ingredientLink.eq(indexIngredient).text();
+  console.log("[" + indexIngredient + "] Ingredient \"" + name + "\"");
+  insertNewIngredient(name, function(err, res) {
     if (err) {
       callback(err);
     }
-    else if (res.statusCode !== 200) {
-      callback("Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
-    }
     else {
-      var $ = cheerio.load(body);
-      var pagIngredient = $("#recettes > p.pagination a");
-      console.log("  --> Url = " + url);
-      if (pagIngredient.length) {
-        lastPagIngredient = pagIngredient.last().text();
-      }
-      loopForPagIngredient(url.slice(0, url.indexOf("/")), function(err) {
-        callback(null);
-      })
+      request("http://www.cuisine-libre.fr/" + url, function(err, res, body) {
+        if (err) {
+          callback(err);
+        }
+        else if (res.statusCode !== 200) {
+          callback("[KO] Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
+        }
+        else {
+          var $ = cheerio.load(body);
+          var pagIngredient = $("#recettes > p.pagination a");
+          console.log("     --> Url = " + url);
+          if (pagIngredient.length) {
+            lastPagIngredient = pagIngredient.last().text();
+          }
+          loopForPagIngredient(url.slice(0, url.indexOf("/")), function(err) {
+            callback(null);
+          })
+        }
+      });
     }
-  });
+  })
 }
 
 function loopForPagIngredient(url, callback) {
@@ -201,6 +252,7 @@ function loopForPagIngredient(url, callback) {
         callback(err);
       else {
         if (indexPagIngredient > lastPagIngredient) {
+          console.log("[OK] This recipe is up to date!")
           indexPagIngredient = 0;
           lastPagIngredient = 0;
           callback(null);
@@ -220,26 +272,38 @@ function collectUrlIngredient(url, callback) {
       callback(err);
     }
     else if (res.statusCode !== 200) {
-      callback("Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
+      callback("[KO] Error while scraping url (" + url + ") for ingredient: Bad res from server (" + res.statusCode + ")");
     }
     else {
       var $ = cheerio.load(body);
+      var recipeIdArray = [];
       var relativeLinks = $("#recettes > ul > li > a");
-      console.log("    Found " + relativeLinks.length + " relative links - Page (" + (lastPagIngredient == 0 ? "1 / 1" : (indexPagIngredient / PER_PAGE + 1) + " / " + (lastPagIngredient / PER_PAGE + 1)) + ")");
+      console.log("     --> Found " + relativeLinks.length + " relative links - Page (" + (lastPagIngredient == 0 ? "1 / 1" : (indexPagIngredient / PER_PAGE + 1) + " / " + (lastPagIngredient / PER_PAGE + 1)) + ")");
       relativeLinks.each(function(index, link) {
         var found = pagesToVisit.some(function (elem) {
           return elem === $(link).attr('href');
         });
         if (!found) {
-          console.log("      Pushing --> " + $(link).attr('href'))
+          // console.log("       New recipe detected --> " + $(link).attr('href'))
           pagesToVisit.push($(link).attr('href'));
         }
         else {
-          console.log("      This url already exist ! --> " + $(link).attr('href'))
+          // console.log("       This recipe already exist ! --> " + $(link).attr('href'))
+        }
+        recipeIdArray.push($(link).attr('href'));
+      });
+      coll_ingredient.update(
+        {_id : idIngredientTmp},
+        { $addToSet: { recipe_id : { $each: recipeIdArray }}},
+        function(err, res) {
+        if (err) {
+          callback(err);
+        }
+        else {
+          indexPagIngredient += PER_PAGE;
+          callback();
         }
       });
-      indexPagIngredient += PER_PAGE;
-      callback(null);
     }
   });
 }
@@ -353,10 +417,6 @@ function scrapTest() {
       }
       else
         console.log("LICENSE = [ERROR]")
-      // collectImg($);
-      // collectPreparationTime($);
-      // collectInstructions($);
-      // collectCookingTime($);
     }
   });
 }
