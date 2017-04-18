@@ -3,12 +3,14 @@ var cheerio = require('cheerio');
 var URL = require('url-parse');
 
 var START_URL = "http://www.cuisine-libre.fr/?page=recherche&recherche=&lang=fr&tri_recettes=titre&debut_recettes="; // In use ?
-var BASE_URL = "http://www.cuisine-libre/";// In use ?
+var BASE_URL = "http://www.cuisine-libre.fr/";// In use ?
 var SEARCH_WORD = "poulet1"; // In use ?
 var TEST_URL1 = "http://www.cuisine-libre.fr/cheesecake-saveurs-abricots-et-pistaches?lang=fr";
 var TEST_URL2 = "http://www.cuisine-libre.fr/cuisson-des-topinambours";
 var TEST_URL3 = "http://www.cuisine-libre.fr/frites-de-panais-a-la-cannelle?lang=fr";
 var TEST_URL4 = "http://www.cuisine-libre.fr/le-baiser-de-la-princesse";
+var TEST_URL5 = "http://www.cuisine-libre.fr/chips-et-frites-de-butternut-sans-gras?lang=fr"
+var TEST_URL6 = "http://www.cuisine-libre.fr/veloute-magenta";
 var INGREDIENT_URL = "http://www.cuisine-libre.fr/ingredients";
 
 var MAX_PAGES_TO_VISIT = 1; // In use ?
@@ -18,9 +20,10 @@ var i = 0; // have to rename
 
 var pagesToVisit = [];
 var ingredientLink;
-var indexIngredient = 143;
+var indexIngredient = -1;
 var lastPagIngredient = 0;
 var indexPagIngredient = 0;
+var indexRecipe = -1;
 
 // +-+-+-+-+-+-+-+ DB SETUP +-+-+-+-+-+-+-+
 var mongoClient = require('mongodb').MongoClient
@@ -28,6 +31,7 @@ var db;
 var coll_ingredient;
 var coll_recipe;
 var idIngredientTmp;
+var urlRecipeTmp;
 var assert = require('assert'); // In use ?
 var DB_URL = 'mongodb://localhost:27017/scraper_cuisine_libre_fr';
 var url = 'mongodb://localhost:27017/scraper_cuisine_libre_fr'; // In use ?
@@ -45,13 +49,14 @@ DB SCHEMA
 └-> collection recipe
   └-> _id
   └-> url : string unique
-  └-> title : string
+  └-> title : string unique
   └-> author : string
   └-> img : string (path)
   └-> ingredient
-    └-> id : char **
+    └-> id : char ** ?
     └-> title : string
     └-> list : string
+  └-> instruction : string
   └-> time
     └-> preparationTime : int 32
     └-> cookingTime : int 32
@@ -68,23 +73,17 @@ DB SCHEMA
   └-> recipe_id : char **
 */
 
-function initIngredient(callback) {
-  coll_ingredient = db.collection(COLL_INGREDIENT);
-  coll_ingredient.find({}).toArray(function(err, docs) {
+function cleanDb(callback) {
+  var collection = db.collection(COLL_INGREDIENT);
+  collection.remove(function(err, result) {
     assert.equal(err, null);
-    if (!docs.length) {
-      coll_ingredient.createIndex(
-        { name : 1}, { unique : true},
-        function(err, result) {
-          assert.equal(err, null);
-          console.log("      DB created with structure, continue scraping to fill it.")
-          callback();
-      });
-    }
-    else {
-      console.log("     DB already created, continue scraping for update.");
+    console.log("All ingredients document have been removed!");
+    collection = db.collection(COLL_RECIPE);
+    collection.remove(function(err, result) {
+      assert.equal(err, null);
+      console.log("All recipes document have been removed!");
       callback();
-    }
+    });
   });
 }
 
@@ -109,31 +108,41 @@ function insertTEST(callback) {
   });
 }
 
-function insertNewIngredient(name, callback) {
-  coll_ingredient.findOne({name : name}, function(err, doc) {
-      if (doc) {
-        console.log("     --> DB: ingredient " + name + " already set.");
-        idIngredientTmp = doc._id;
-        callback();
-      }
-      else {
-        coll_ingredient.insertOne({name : name, recipe_id : []}, function(err, res) {
+// scrapTest();
+
+connectToDB(function(err) {
+  if (err) {
+    console.log(err);
+    process.exit(1);
+  }
+  getAllIngredient(function(err) {
+    if (err) {
+      console.log(err);
+      process.exit(1);
+    }
+    else {
+      console.log("\n[OK] Success: all ingredients are up to date!");
+      console.log("\n[OK] Found " + pagesToVisit.length + " recipes, launch scraper to get data of recipes ...");
+      initRecipe(function () {
+        loopForRecipe(function (err) {
           if (err) {
-            callback(err);
+            console.log(err);
+            process.exit(1);
           }
           else {
-            console.log("     --> DB: inserted new ingredient -> " + name);
-            idIngredientTmp = res.insertedId;
-            callback();
+            console.log("\n[OK] Success: all recipes are up to date!");
+            console.log("\n[END] All data were collected, scraper ends now.");
+            process.exit();
           }
-        });
-      }
+        })
+      })
+    }
   });
-}
-
+});
 
 function connectToDB(callback) {
   console.log("Scrapper cuisine-libre.fr v1.0 (https://github.com/vsteffen/scraper_cuisine-libre.fr)\n")
+  console.log("Refer to this page about the legal mentions (http://www.cuisine-libre.fr/mentions-legales?lang=fr)")
   mongoClient.connect(url, function(err, res) {
     db = res;
     if (err)
@@ -147,32 +156,45 @@ function connectToDB(callback) {
   });
 }
 
-function cleanDb(callback) {
-  var collection = db.collection(COLL_INGREDIENT);
-  collection.remove(function(err, result) {
+function initIngredient(callback) {
+  coll_ingredient = db.collection(COLL_INGREDIENT);
+  coll_ingredient.find({}).toArray(function(err, docs) {
     assert.equal(err, null);
-    console.log("All ingredients document have been removed!");
-    collection = db.collection(COLL_RECIPE);
-    collection.remove(function(err, result) {
-      assert.equal(err, null);
-      console.log("All recipes document have been removed!");
+    if (!docs.length) {
+      coll_ingredient.createIndex(
+        { name : 1, title : 1}, { unique : true},
+        function(err, result) {
+          assert.equal(err, null);
+          console.log("      DB for ingredients created with structure, continue scraping to fill it.")
+          callback();
+      });
+    }
+    else {
+      console.log("     DB for ingredients already created, continue scraping for update.");
       callback();
-    });
+    }
   });
 }
 
-// scrapTest();
-connectToDB(function(err) {
-  if (err)
-    return console.log(err);
-    getAllIngredient(function(err) {
-      if (err)
-      return console.log(err);
-      else {
-        console.log("GOODJOB BROW")
-      }
-    });
-});
+function initRecipe(callback) {
+  coll_recipe = db.collection(COLL_RECIPE);
+  coll_recipe.find({}).toArray(function(err, docs) {
+    assert.equal(err, null);
+    if (!docs.length) {
+      coll_recipe.createIndex(
+        { url : 1}, { unique : true},
+        function(err, result) {
+          assert.equal(err, null);
+          console.log("     DB for recipes created with structure, continue scraping to fill it.")
+          callback();
+      });
+    }
+    else {
+      console.log("    DB for recipes already created, continue scraping for update.");
+      callback();
+    }
+  });
+}
 
 function getAllIngredient(callback) {
   request(INGREDIENT_URL, function(err, res, body) {
@@ -185,11 +207,12 @@ function getAllIngredient(callback) {
     else {
       var $ = cheerio.load(body);
       ingredientLink = $("#index > ul a");
-      console.log("[OK] Found " + ingredientLink.length + " ingredients, launch crawler to get recipes associated to ingredient ...");
+      console.log("[OK] Found " + ingredientLink.length + " ingredients, launch scraper to get recipes associated to ingredient ...");
       loopForIngredient(function(err) {
         if (err)
           callback(err);
-        callback(null);
+        else
+          callback();
       });
     }
   });
@@ -210,13 +233,13 @@ function loopForIngredient(callback) {
     }, TIME_TO_REQUEST)
   }
   else
-    callback(null);
+    callback();
 }
 
 function scrapIngredient(callback) {
   var url = ingredientLink.eq(indexIngredient).attr("href");
   var name = ingredientLink.eq(indexIngredient).text();
-  console.log("[" + indexIngredient + "] Ingredient \"" + name + "\"");
+  console.log("[" + (indexIngredient + 1) + "] Ingredient \"" + name + "\"");
   insertNewIngredient(name, function(err, res) {
     if (err) {
       callback(err);
@@ -245,6 +268,28 @@ function scrapIngredient(callback) {
   })
 }
 
+function insertNewIngredient(name, callback) {
+  coll_ingredient.findOne({name : name}, function(err, doc) {
+      if (doc) {
+        console.log("     --> DB: ingredient " + name + " already set.");
+        idIngredientTmp = doc._id;
+        callback();
+      }
+      else {
+        coll_ingredient.insertOne({name : name, recipe_id : []}, function(err, res) {
+          if (err) {
+            callback(err);
+          }
+          else {
+            console.log("     --> DB: inserted new ingredient -> " + name);
+            idIngredientTmp = res.insertedId;
+            callback();
+          }
+        });
+      }
+  });
+}
+
 function loopForPagIngredient(url, callback) {
   setTimeout(function () {
     collectUrlIngredient(url, function(err){
@@ -255,7 +300,7 @@ function loopForPagIngredient(url, callback) {
           console.log("[OK] This recipe is up to date!")
           indexPagIngredient = 0;
           lastPagIngredient = 0;
-          callback(null);
+          callback();
         }
         else {
           loopForPagIngredient(url, callback);
@@ -278,18 +323,13 @@ function collectUrlIngredient(url, callback) {
       var $ = cheerio.load(body);
       var recipeIdArray = [];
       var relativeLinks = $("#recettes > ul > li > a");
-      console.log("     --> Found " + relativeLinks.length + " relative links - Page (" + (lastPagIngredient == 0 ? "1 / 1" : (indexPagIngredient / PER_PAGE + 1) + " / " + (lastPagIngredient / PER_PAGE + 1)) + ")");
+      console.log("     --> Found " + relativeLinks.length + " relatives links - Page (" + (lastPagIngredient == 0 ? "1 / 1" : (indexPagIngredient / PER_PAGE + 1) + " / " + (lastPagIngredient / PER_PAGE + 1)) + ")");
       relativeLinks.each(function(index, link) {
         var found = pagesToVisit.some(function (elem) {
           return elem === $(link).attr('href');
         });
-        if (!found) {
-          // console.log("       New recipe detected --> " + $(link).attr('href'))
+        if (!found)
           pagesToVisit.push($(link).attr('href'));
-        }
-        else {
-          // console.log("       This recipe already exist ! --> " + $(link).attr('href'))
-        }
         recipeIdArray.push($(link).attr('href'));
       });
       coll_ingredient.update(
@@ -308,117 +348,347 @@ function collectUrlIngredient(url, callback) {
   });
 }
 
+// function scrapRecipe() {
+//   // console.log("KOUKOU")
+//   var index = 0;
+//   pagesToVisit.forEach(function(value) {
+//     index++;
+//     console.log("Val(" + index + ") = " + value);
+//   });
+//   i = -1;
+//   // for(var i2= 0; i2 < pagesToVisit.length; i2++)
+//   // {
+//   //      console.log("Val(" + i2 + ") = " + pagesToVisit[i2]);
+//   // }
+//   loopForScrap();
+// }
 
-function scrapTest() {
-  console.log("Test Scrap ")
-  request(TEST_URL4, function(err, res, body) {
-    if (err) {
-      callback(err);
-    }
-    else if (res.statusCode !== 200) {
-      callback("Bad res from server (" + res.statusCode + ")");
-    }
-    else {
-      var $ = cheerio.load(body);
-      var selectAuthor = $(".auteur");
-      if (selectAuthor.length)
-        console.log("AUTHOR1 = [" + selectAuthor.text().substr(7) + "]")
-      else
-        console.log("AUTHOR1 = [cuisine-libre.fr]")
-
-      var selectTitle = $("#preparation > h2");
-      if (selectTitle.length)
-        console.log("TITLE = [" + selectTitle.text() + "]")
-      else
-        console.log("TITLE = [ERROR]")
-
-      var selectIngredient = $("#ingredients > div > ul > li");
-      selectIngredient.each(function(i) {
-        console.log("INGREDIENT[" + i + "] = [" + $(this).text().substr(1) + "]")
+function loopForRecipe(callback) {
+  indexRecipe++;
+  if (indexRecipe < pagesToVisit.length) {
+    setTimeout(function () {
+      urlRecipeTmp = pagesToVisit[indexRecipe];
+      console.log("");
+      console.log("[" + (indexRecipe + 1) +"] Recipe " + urlRecipeTmp);
+      scrapRecipe(function(err){
+        if (err)
+          callback(err);
+        else {
+          console.log("[OK] This recipe is up to date!");
+          loopForRecipe(callback);
+        }
       });
+    }, TIME_TO_REQUEST)
+  }
+  else
+    callback();
+}
 
-      var selectImg = $(".photo");
-      if (selectImg.length)
-        console.log("IMG = [" + selectImg.attr("src") + "]")
-      else
-        console.log("IMG = []")
-
-      var selectPreparationTime = $(".duree_preparation.prepTime");
-      if (selectPreparationTime.length) {
-        var timeStr = selectPreparationTime.text().substr(14);
-        if (timeStr.indexOf("?") >= 0)
-          console.log("PREP TIME = [UNKNOWN]")
+function scrapRecipe(callback) {
+  verifyRecipe(function(err, doc) {
+    if (err)
+      callback(err);
+    else if (doc)
+      callback();
+    else {
+      request(BASE_URL + urlRecipeTmp, function(err, res, body) {
+        if (err) {
+          callback(err);
+        }
+        else if (res.statusCode !== 200) {
+          callback("Bad res from server (" + res.statusCode + ")");
+        }
         else {
-          getTime(timeStr, function(time) {
-            console.log("PREP TIME = [" + time + "] TOTAL");
+          var $ = cheerio.load(body);
+          collectBasics($, function () {
+            if (err)
+            callback(err);
+            else {
+              collectIngredient($, function(err) {
+                if (err)
+                callback(err);
+                else {
+                  collectInstruction($, function(err) {
+                    if (err)
+                    callback(err);
+                    else {
+                      collectTime($, function(err) {
+                        if (err)
+                        callback(err);
+                        else {
+                          callback();
+                        }
+                      })
+                    }
+                  })
+                }
+              })
+            }
           });
         }
-      }
-      else
-        console.log("PREP TIME = [NO]")
-
-      var selectCookingTime = $(".duree_cuisson.cookTime");
-      if (selectCookingTime.length) {
-        var timeStr = selectCookingTime.text().substr(10);
-        if (timeStr.indexOf("?") >= 0)
-          console.log("COOK TIME = [UNKNOWN]")
-        else {
-          getTime(timeStr, function(time) {
-            console.log("COOK TIME = [" + time + "] TOTAL");
-          });
-        }
-      }
-      else
-        console.log("COOK TIME = [NO]")
-
-      var selectWaitingTime = $(".duree_marinade");
-      if (selectWaitingTime.length) {
-        var timeStr = selectWaitingTime.text().substr(10);
-        if (timeStr.indexOf("?") >= 0)
-          console.log("WAIT TIME = [UNKNOWN]")
-        else {
-          getTime(timeStr, function(time) {
-            console.log("WAIT TIME = [" + time + "] TOTAL");
-          });
-        }
-      }
-      else
-        console.log("WAIT TIME = [NO]")
-
-      var selectTitleIngredient = $("#ingredients > h2");
-      if (selectTitleIngredient.length) {
-        console.log("TITLE INGREDIENT = [" + selectTitleIngredient.text() + "]")
-      }
-      else
-        console.log("TITLE INGREDIENT = [ERROR]")
-
-      var selectHint = $("#ps p");
-      var hintStr = "";
-      if (selectHint.length) {
-        hintStr += selectHint.text();
-      }
-      selectHint = $("#variations p");
-      if (selectHint.length) {
-        if (hintStr === "")
-          hintStr += selectHint.text();
-        else
-          hintStr += '\n' + selectHint.text();
-      }
-      if (hintStr !== "") {
-        console.log("HINT = [" + hintStr + "]")
-      }
-      else {
-        console.log("HINT = [NO]")
-      }
-
-      var selectLicense = $("#licence > p > a");
-      if (selectLicense.length) {
-        console.log("LICENSE = [" + selectLicense.text() + "]")
-      }
-      else
-        console.log("LICENSE = [ERROR]")
+      });
     }
   });
+}
+
+function verifyRecipe(callback) {
+  coll_recipe.findOne({url : urlRecipeTmp}, function(err, doc) {
+      if (doc) {
+        console.log("     --> DB: recipe " + urlRecipeTmp + " already set.");
+        callback(null, true);
+      }
+      else {
+        coll_recipe.insertOne({url : urlRecipeTmp}, function(err, res) {
+          if (err) {
+            callback(err);
+          }
+          else {
+            console.log("     --> DB: inserted new recipe -> " + urlRecipeTmp);
+            callback(null, false);
+          }
+        });
+      }
+  });
+}
+
+function collectBasics($, callback) {
+  collectTitle($, function (err, res) {
+    if (err)
+      callback(err);
+    else {
+      collectAuthor($, function (err, res) {
+        if (err)
+          callback(err);
+        else {
+          collectImg($, function (err, res) {
+            if (err)
+              callback(err);
+            else {
+              collectHint($, function (err, res) {
+                if (err)
+                  callback(err);
+                else {
+                  collectLicense($, function (err, res) {
+                    if (err)
+                      callback(err);
+                    else {
+                      callback();
+                    }
+                  });
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+  });
+}
+
+function collectTitle($, callback) {
+  var selectTitle = $("#preparation > h2");
+  if (!selectTitle.length)
+    callback("Title not found on this url (" + urlRecipeTmp + ")");
+  else {
+    selectTitle = selectTitle.text();
+    coll_recipe.update(
+      { url : urlRecipeTmp},
+      { $set: { title : selectTitle }},
+      function(err, res) {
+        callback(err);
+    })
+  }
+}
+
+function collectAuthor($, callback) {
+  var selectAuthor = $(".auteur");
+  if (selectAuthor.length)
+    selectAuthor = selectAuthor.text().substr(7);
+  else
+    selectAuthor = "cuisine-libre.fr";
+  coll_recipe.update(
+    { url : urlRecipeTmp},
+    { $set: { author : selectAuthor }},
+    function(err, res) {
+      callback(err);
+  })
+}
+
+function collectImg($, callback) {
+  var selectImg = $(".photo");
+  if (selectImg.length) {
+    selectImg = selectImg.attr("src");
+    coll_recipe.update(
+      { url : urlRecipeTmp},
+      { $set: { img : selectImg }},
+      function(err, res) {
+        callback(err);
+    })
+  }
+  else
+    callback();
+}
+
+function collectHint($, callback) {
+  var selectHint = $("#ps p");
+  var hintStr = "";
+  if (selectHint.length) {
+    hintStr += selectHint.text();
+  }
+  selectHint = $("#variations p");
+  if (selectHint.length) {
+    if (hintStr === "")
+      hintStr += selectHint.text();
+    else
+      hintStr += '\n' + selectHint.text();
+  }
+  if (hintStr !== "") {
+    coll_recipe.update(
+      { url : urlRecipeTmp},
+      { $set: { hint : hintStr }},
+      function(err, res) {
+        callback(err);
+    })
+  }
+  else {
+    callback();
+  }
+}
+function collectLicense($, callback) {
+  var selectLicense = $("#licence > p > a");
+  if (selectLicense.length) {
+    selectLicense = selectLicense.text();
+  }
+  else
+    selectLicense = "license libre";
+  coll_recipe.update(
+    { url : urlRecipeTmp},
+    { $set: { license : selectLicense }},
+    function(err, res) {
+      callback(err);
+  })
+}
+
+function collectIngredient($, callback) {
+  collectIngredientTitle($, function (title) {
+    collectIngredientList($, function (list) {
+      var embedded_field = {};
+      embedded_field.title = title;
+      embedded_field.list = list;
+      coll_recipe.update(
+        { url : urlRecipeTmp},
+        { $set: { ingredient : embedded_field }},
+        function(err, res) {
+          callback(err);
+      })
+    });
+  });
+}
+
+function collectInstruction($, callback) {
+  var selectInstruction = $("#preparation > div");
+  if (selectInstruction.length) {
+    selectInstruction = selectInstruction.text().replace(/(?:\r\n|\r|\n)/g, '< br/>');
+    // var str = selectInstruction.text(); //.replace(/(?:\r\n|\r|\n)/g, '< br/>');
+    // console.log("CHARCODE -> " + str.charCodeAt(str.indexOf("mixer. Ajouter") - 1) + " AAAAAAAAAAND " + (str[str.indexOf("mixer. Ajouter") - 1]))
+    coll_recipe.update(
+      { url : urlRecipeTmp},
+      { $set: { instruction : selectInstruction }},
+      function(err, res) {
+        callback(err);
+    })
+  }
+  else
+    callback("[KO] No instruction scrapped for this url (" + urlRecipeTmp + ")!")
+}
+
+function collectTime($, callback) {
+  collectTimePreparation($, function (preparation) {
+    collectTimeCooking($, function (cooking) {
+      collectTimeWaiting($, function (waiting) {
+        var embedded_field = {};
+        if (preparation)
+          embedded_field.preparation = preparation;
+        if (cooking)
+          embedded_field.cooking = cooking;
+        if (waiting)
+          embedded_field.waiting = waiting;
+        coll_recipe.update(
+          { url : urlRecipeTmp},
+          { $set: { time : embedded_field }},
+          function(err, res) {
+            callback(err);
+        })
+      });
+    });
+  });
+}
+
+function collectIngredientTitle($, callback) {
+  var selectTitleIngredient = $("#ingredients > h2");
+  if (selectTitleIngredient.length) {
+    callback(selectTitleIngredient.text());
+  }
+  else {
+    callback("Ingrédients :")
+  }
+}
+
+function collectIngredientList($, callback) {
+  var listIngredient = [];
+  var selectIngredient = $("#ingredients > div > ul > li");
+  selectIngredient.each(function(i) {
+    listIngredient.push($(this).text().substr(1));
+  });
+  callback(listIngredient);
+}
+
+function collectTimePreparation($, callback) {
+  var selectPreparationTime = $(".duree_preparation.prepTime");
+  if (selectPreparationTime.length) {
+    var timeStr = selectPreparationTime.text().substr(14);
+    if (timeStr.indexOf("?") >= 0)
+      callback();
+    else {
+      getTime(timeStr, function(time) {
+        callback(time);
+      });
+    }
+  }
+  else
+    callback();
+}
+
+function collectTimeCooking($, callback) {
+  var selectCookingTime = $(".duree_cuisson.cookTime");
+  if (selectCookingTime.length) {
+    var timeStr = selectCookingTime.text().substr(10);
+    if (timeStr.indexOf("?") >= 0)
+      callback();
+    else {
+      getTime(timeStr, function(time) {
+        callback(time);
+      });
+    }
+  }
+  else
+    callback();
+}
+
+function collectTimeWaiting($, callback) {
+  var selectWaitingTime = $(".duree_marinade");
+  if (selectWaitingTime.length) {
+    var timeStr = selectWaitingTime.text().substr(10);
+    if (timeStr.indexOf("?") >= 0)
+      callback();
+    else {
+      getTime(timeStr, function(time) {
+        callback(time);
+      });
+    }
+  }
+  else
+    callback();
 }
 
 function getTime(timeStr, callback) {
@@ -443,209 +713,4 @@ function getTime(timeStr, callback) {
     time += parseInt(timeStr);
   }
   callback(time);
-}
-
-function getAllUrl() {
-  console.log("START")
-  getMaxPage(function(err) {
-    if (err)
-      return console.log(err);
-    else {
-      loopForCrawl();
-    }
-  });
-}
-
-function getMaxPage(callback) {
-  console.log("Ask max page ... ")
-  request(START_URL, function(err, res, body) {
-    if (err) {
-      callback(err);
-    }
-    else if (res.statusCode !== 200) {
-      callback("Bad res from server (" + res.statusCode + ")");
-    }
-    else {
-      var $ = cheerio.load(body);
-      var relativeLinks = $("#recettes > p.pagination > span > a:last-child");
-      relativeLinks.each(function() {
-        console.log("MAX PAGE = [" + $(this).text() + "]")
-        maxPage = $(this).text();
-        callback(null);
-      });
-    }
-  });
-}
-
-function loopForCrawl() {
-  setTimeout(function () {
-    i++;
-    getUrlActualPage(i, function(err){
-      if (i * PER_PAGE <= maxPage) {
-       loopForCrawl();
-      }
-    });
-  }, TIME_TO_REQUEST)
-}
-
-function getUrlActualPage(actualPage, callback) {
-  request(START_URL + (actualPage - 1) * PER_PAGE, function(err, res, body) {
-    if (err) {
-      callback(err);
-    }
-    else if (res.statusCode !== 200) {
-      callback("Bad res from server (" + res.statusCode + ")");
-    }
-    else {
-      var $ = cheerio.load(body);
-      collectRecipesLink($);
-      callback();
-      if (i * PER_PAGE > maxPage) {
-       scrapRecipe();
-      }
-    }
-  });
-}
-
-function collectRecipesLink($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    // console.log("$(this) = [" + relativeLinks + "]")
-    // .clearfix > a
-    console.log("Found " + relativeLinks.length + " relative links - Page " + i + " (" + ((i * PER_PAGE) - 50) + " / " + i * PER_PAGE + ")");
-    relativeLinks.each(function() {
-          // console.log("Node = [" + $(this) + "]")
-        pagesToVisit.push($(this).attr('href'));
-    });
-}
-
-
-function scrapRecipe() {
-  // console.log("KOUKOU")
-  var index = 0;
-  pagesToVisit.forEach(function(value) {
-    index++;
-    console.log("Val(" + index + ") = " + value);
-  });
-  i = -1;
-  // for(var i2= 0; i2 < pagesToVisit.length; i2++)
-  // {
-  //      console.log("Val(" + i2 + ") = " + pagesToVisit[i2]);
-  // }
-  loopForScrap();
-}
-
-function loopForScrap() {
-  setTimeout(function () {
-    i++;
-    getDataRecipe(pagesToVisit[i], function(err){
-      if (err)
-        return console.log(err);
-      else {
-        if (i < pagesToVisit.length) {
-          loopForScrap();
-        }
-      }
-    });
-  }, TIME_TO_REQUEST)
-}
-
-function getDataRecipe(url, callback) {
-  request(BASE_URL + url, function(err, res, body) {
-    if (err) {
-      callback(err);
-    }
-    else if (res.statusCode !== 200) {
-      callback("Bad res from server (" + res.statusCode + ")");
-    }
-    else {
-      var $ = cheerio.load(body);
-      collectTitle($);
-      collectAuthor($);
-      collectIngredient($);
-      collectImg($);
-      collectPreparationTime($);
-      collectInstructions($);
-      collectCookingTime($);
-      callback();
-      if (i == pagesToVisit.length) {
-       last_function();
-      }
-    }
-  });
-}
-
-function collectTitle($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectAuthor($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectIngredient($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectImg($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectPreparationTime($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectInstructions($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function collectCookingTime($) {
-  var relativeLinks = $("#recettes > ul > li > a");
-    console.log("Found " + relativeLinks.length + " relative links for Title");
-    relativeLinks.each(function() {
-        console.log("Title = " + ($(this).attr('href')));
-    });
-}
-
-function last_function() {
-  console.log("Success to scrap data and add to database")
-}
-
-function testNode(callback) {
-  var callBackString = {};
-  callBackString.value1 = "value1";
-  callBackString.value2 = "value2";
-  callBackString.value3 = "value3";
-  // var err = new Error;
-  // err.mdr = "CPAKOOL"
-  callback(callBackString, null);
-}
-
-function searchForWord($, word) {
-  var bodyText = $('#recettes > ul > li > a').text().toLowerCase();
-  // console.log("bodyText = [" + bodyText + "]")
-  return(bodyText.indexOf(word.toLowerCase()) !== -1);
 }
