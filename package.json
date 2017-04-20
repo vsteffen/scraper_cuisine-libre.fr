@@ -1,8 +1,8 @@
 {
   "name": "scraper_cuisine_libre.fr",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Tous les ingrédients et recettes récupérés appartiennent à [www.cuisine-libre.fr](http://www.cuisine-libre.fr). Si vous utilisez la base de données générée par ce scraper, vous devez respectez les conditions indiquées dans les mentions légales du site à cette addresse [www.cuisine-libre.fr/mentions-legales](http://www.cuisine-libre.fr/mentions-legales).",
+  "main": "scraper.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -12,5 +12,22 @@
     "cheerio": "^0.19.0",
     "url-parse": "^1.0.5",
     "request": "^2.65.0"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vsteffen/scraper_cuisine-libre.fr.git"
+  },
+  "keywords": [
+    "scraper",
+    "scrapper",
+    "recettes",
+    "recipes",
+    "libre",
+    "www.cuisine-libre.fr"
+  ],
+  "bugs": {
+    "url": "https://github.com/vsteffen/scraper_cuisine-libre.fr/issues"
+  },
+  "homepage": "https://github.com/vsteffen/scraper_cuisine-libre.fr#readme"
 }

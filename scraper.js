@@ -15,6 +15,7 @@ var TEST_URL4 = "http://www.cuisine-libre.fr/le-baiser-de-la-princesse";
 var TEST_URL5 = "http://www.cuisine-libre.fr/chips-et-frites-de-butternut-sans-gras?lang=fr"
 var TEST_URL6 = "http://www.cuisine-libre.fr/veloute-magenta";
 var INGREDIENT_URL = "http://www.cuisine-libre.fr/ingredients";
+var IMG_FOLDER = __dirname + "/res/img/";
 
 var MAX_PAGES_TO_VISIT = 1; // In use ?
 var PER_PAGE = 50; // In use ?
@@ -23,7 +24,7 @@ var i = 0; // have to rename
 
 var pagesToVisit = [];
 var ingredientLink;
-var indexIngredient = 360;
+var indexIngredient = 364;
 var lastPagIngredient = 0;
 var indexPagIngredient = 0;
 var indexRecipe = -1;
@@ -40,7 +41,6 @@ var DB_URL = 'mongodb://localhost:27017/scraper_cuisine_libre_fr';
 var url = 'mongodb://localhost:27017/scraper_cuisine_libre_fr'; // In use ?
 var COLL_INGREDIENT = "ingredient";
 var COLL_RECIPE = "recipe";
-var IMG_FOLDER = "/img/";
 
 var initialCallback; // In use ?
 
@@ -60,7 +60,6 @@ DB SCHEMA
     └-> id : char ** ?
     └-> title : string
     └-> list : string
-    └-> diet : int 32 // 0 -> "normal" / 1 -> vegetarian / 2 -> Vegan
   └-> instruction : string
   └-> time
     └-> preparationTime : int 32
@@ -128,32 +127,26 @@ connectToDB(function(err) {
     else {
       console.log("\n[OK] Success: all ingredients are up to date!");
       console.log("\n[OK] Found " + pagesToVisit.length + " recipes, launch scraper to get data of recipes ...");
-      initRecipe(function (err) {
-        if (err) {
-          console.log(err);
-          process.exit(1);
-        }
-        else {
-          loopForRecipe(function (err) {
-            if (err) {
-              console.log(err);
-              process.exit(1);
-            }
-            else {
-              console.log("\n[OK] Success: all recipes are up to date!");
-              console.log("\n[END] All data were collected, scraper ends now.");
-              process.exit();
-            }
-          })
-        }
+      initRecipe(function () {
+        loopForRecipe(function (err) {
+          if (err) {
+            console.log(err);
+            process.exit(1);
+          }
+          else {
+            console.log("\n[OK] Success: all recipes are up to date!");
+            console.log("\n[END] All data were collected, scraper ends now.");
+            process.exit();
+          }
+        })
       })
     }
   });
 });
 
 function connectToDB(callback) {
-  console.log("Scrapper cuisine-libre.fr v1.0 (https://github.com/vsteffen/scraper_cuisine-libre.fr)")
-  console.log("Refer to this page about the legal mentions (http://www.cuisine-libre.fr/mentions-legales?lang=fr)\n")
+  console.log("Scrapper cuisine-libre.fr v1.0 (https://github.com/vsteffen/scraper_cuisine-libre.fr)\n")
+  console.log("Refer to this page about the legal mentions (http://www.cuisine-libre.fr/mentions-legales?lang=fr)")
   mongoClient.connect(url, function(err, res) {
     db = res;
     if (err)
@@ -188,7 +181,7 @@ function initIngredient(callback) {
 }
 
 function initRecipe(callback) {
-  verifyImgFolder(__dirname + IMG_FOLDER, function (err) {
+  verifyImgFolder(function (err) {
     if (err)
       callback(err);
     else {
@@ -205,28 +198,28 @@ function initRecipe(callback) {
             });
           }
           else {
-            console.log("     DB for recipes already created, continue scraping for update.");
+            console.log("    DB for recipes already created, continue scraping for update.");
             callback();
           }
         });
     }
-  })
+  });
 }
 
-function verifyImgFolder(imgFolder, callback) {
-  fs.stat(imgFolder, function (err, stats){
+function verifyImgFolder(callback) {
+  fs.stat(IMG_FOLDER, function (err, stats){
     if (err) {
-      fs.mkdir(imgFolder, function (err) {
+      fs.mkdir(IMG_FOLDER, function (err) {
         if (err)
-          callback("[KO] Impossible to create folder for img (" + imgFolder + ")")
+          callback("     Impossible to create folder for img (" + IMG_FOLDER + ")")
         else {
-          console.log("     Create folder img (" + imgFolder + ")");
+          console.log("     Create folder img (" + IMG_FOLDER + ")");
           callback();
         }
       });
     }
     else {
-      console.log("     Folder img already created (" + imgFolder + ")");
+      console.log("     Folder img already created (" + IMG_FOLDER + ")");
       callback();
     }
   });
@@ -436,9 +429,9 @@ function scrapRecipe(callback) {
         }
         else {
           var $ = cheerio.load(body);
-          collectBasics($, function (err) {
+          collectBasics($, function () {
             if (err)
-              callback(err);
+            callback(err);
             else {
               collectIngredient($, function(err) {
                 if (err)
@@ -551,17 +544,20 @@ function collectAuthor($, callback) {
 }
 
 function collectImg($, callback) {
-  var selectImg = $("#content > div.illustration > img");
+  var selectImg = $(".photo");
+      console.log("KOUKOU TOI")
   if (selectImg.length) {
-    var imgUrl = selectImg.attr("src").replace('//','http://');
-    filename = __dirname + IMG_FOLDER + urlRecipeTmp + ".jpeg";
-    downloadImg(imgUrl, filename, function(err) {
+    selectImg = selectImg.attr("src");
+    filename = IMG_FOLDER + url + ".jpeg";
+    console.log("KOUKOU TOI")
+
+    downloadImg(selectImg, filename, function(err){
       if (err)
         callback(err);
       else {
         coll_recipe.update(
           { url : urlRecipeTmp},
-          { $set: { imgPath : IMG_FOLDER + urlRecipeTmp + ".jpeg" }},
+          { $set: { imgPath : filename }},
           function(err, res) {
             callback(err);
           })
@@ -573,18 +569,18 @@ function collectImg($, callback) {
 }
 
 function downloadImg (url, filename, callback){
-  console.log(url);
+  console.log("KOUKOU TOI")
   request.head(url, function(err, res, body){
-    // console.log('content-type:', res.headers['content-type']);
-    // console.log('content-length:', res.headers['content-length']);
-    if (err) {
-      callback("[KO] Can't download this image (" + url + ") for recipe " + urlRecipeTmp +".")
-    }
-    else {
-      request(url).pipe(fs.createWriteStream(filename)).on('close', callback);
-    }
+    console.log('content-type:', res.headers['content-type']);
+    console.log('content-length:', res.headers['content-length']);
+    if (err)
+      callback("    [KO] Can't download this image (" + url + ") for recipe " + urlRecipeTmp +".")
+    else
+      request(url).pipe(fs.createWriteStream(filename)).on('close', callback());
   });
 };
+
+
 
 function collectHint($, callback) {
   var selectHint = $("#ps p");
@@ -629,18 +625,15 @@ function collectLicense($, callback) {
 function collectIngredient($, callback) {
   collectIngredientTitle($, function (title) {
     collectIngredientList($, function (list) {
-      collectIngredientDiet($, function (diet) {
-        var embedded_field = {};
-        embedded_field.title = title;
-        embedded_field.list = list;
-        embedded_field.diet = diet;
-        coll_recipe.update(
-          { url : urlRecipeTmp},
-          { $set: { ingredient : embedded_field }},
-          function(err, res) {
-            callback(err);
-        })
-      });
+      var embedded_field = {};
+      embedded_field.title = title;
+      embedded_field.list = list;
+      coll_recipe.update(
+        { url : urlRecipeTmp},
+        { $set: { ingredient : embedded_field }},
+        function(err, res) {
+          callback(err);
+      })
     });
   });
 }
@@ -701,19 +694,6 @@ function collectIngredientList($, callback) {
     listIngredient.push($(this).text().substr(1));
   });
   callback(listIngredient);
-}
-
-function collectIngredientDiet($, callback) {
-  var selectDietIngredient = $("#miam > img").attr('title');
-  if (selectDietIngredient === "Végétarien") {
-    callback(1);
-  }
-  else if (selectDietIngredient === "Végétalien") {
-    callback(2);
-  }
-  else {
-    callback(0);
-  }
 }
 
 function collectTimePreparation($, callback) {
