@@ -60,7 +60,7 @@ DB SCHEMA:
   └-> hint : string
   └-> tag : char ** (not implemented now)
   └-> license : string
-
+  
 */
 
 connectToDB(function(err) {
