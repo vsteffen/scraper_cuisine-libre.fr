@@ -10,7 +10,7 @@ var BASE_URL = "http://www.cuisine-libre.fr/";
 var INGREDIENT_URL = "http://www.cuisine-libre.fr/ingredients";
 var IMG_FOLDER = "/img/"; // Folder where you want to save images (created where you launch the scraper)
 var PER_PAGE = 50; // Number of ingredients or recipes per page
-var TIME_TO_REQUEST = 3000; // time in milliseconds to request between each page
+var TIME_TO_REQUEST = 3000; // time in milliseconds to request between each page / be nice with their servers, put at least more than 1 second (1000)
 
 // +-+-+-+-+-+-+-+ DB SETUP +-+-+-+-+-+-+
 var mongoClient = require('mongodb').MongoClient
@@ -24,12 +24,13 @@ var coll_recipe;
 // +-+-+-+-+-+-+ VAR SCRAPER +-+-+-+-+-+-+
 var pagesToVisit = [];
 var ingredientLink;
-var indexIngredient = -1;
+var indexIngredient = -1; //change it to start at [n - 1] ingredient
 var lastPagIngredient = 0;
 var indexPagIngredient = 0;
 var idIngredientTmp;
 var urlRecipeTmp;
-var indexRecipe = -1;
+var indexRecipe = -1; //change it to start at [n - 1] recipe
+var recipe_error = 0;
 
 /*
 DB SCHEMA:
@@ -89,6 +90,8 @@ connectToDB(function(err) {
             }
             else {
               console.log("\n[OK] Success: all recipes are up to date!");
+              if (recipe_error)
+                console.log("[WARNING] " + recipe_error + " recipe(s) encountered an error.")
               console.log("\n[END] All data were collected, scraper ends now.");
               process.exit();
             }
@@ -100,7 +103,7 @@ connectToDB(function(err) {
 });
 
 function connectToDB(callback) {
-  console.log("Scrapper cuisine-libre.fr v1.0 (https://github.com/vsteffen/scraper_cuisine-libre.fr)")
+  console.log("Scrapper cuisine-libre.fr v1.2 (https://github.com/vsteffen/scraper_cuisine-libre.fr)")
   console.log("Refer to this page about the legal mentions (http://www.cuisine-libre.fr/mentions-legales?lang=fr)\n")
   mongoClient.connect(DB_URL, function(err, res) {
     db = res;
@@ -339,11 +342,14 @@ function loopForRecipe(callback) {
       urlRecipeTmp = pagesToVisit[indexRecipe];
       console.log("");
       console.log("[" + (indexRecipe + 1) +"] Recipe " + urlRecipeTmp);
-      scrapRecipe(function(err){
+      scrapRecipe(function(err, res){
         if (err)
           callback(err);
         else {
-          console.log("[OK] This recipe is up to date!");
+          if (res)
+            console.log(res);
+          else
+            console.log("[OK] This recipe is up to date!");
           loopForRecipe(callback);
         }
       });
@@ -357,12 +363,19 @@ function scrapRecipe(callback) {
   verifyRecipe(function(err, doc) {
     if (err)
       callback(err);
-    else if (doc)
-      callback();
+    else if (doc) {
+      callback(null, "[OK] This recipe has already been scrapped.");
+    }
     else {
       request(BASE_URL + urlRecipeTmp, function(err, res, body) {
         if (err) {
-          callback(err);
+          recipe_error++;
+          coll_recipe.remove({url : urlRecipeTmp}, function(err, res) {
+            if (err)
+              callback(err);
+            else
+              callback(null, "[KO] Something went wrong with this recipe. Test if this url is working : [" + BASE_URL + urlRecipeTmp + "]. Maybe this is the case where there is an infinite loop (like  bol-de-quinoa-aux-fruits-secs).\n");
+          });
         }
         else if (res.statusCode !== 200) {
           callback("Bad res from server (" + res.statusCode + ")");
@@ -484,7 +497,7 @@ function collectAuthor($, callback) {
 }
 
 function collectImg($, callback) {
-  var selectImg = $("#content > div.illustration > img");
+  var selectImg = $("#content > div.illustration img");
   if (selectImg.length) {
     var imgUrl = selectImg.attr("src").replace('//','http://');
     filename = __dirname + IMG_FOLDER + urlRecipeTmp + ".jpeg";
@@ -506,7 +519,6 @@ function collectImg($, callback) {
 }
 
 function downloadImg (url, filename, callback){
-  console.log(url);
   request.head(url, function(err, res, body){
     if (err) {
       callback("[KO] Can't download this image (" + url + ") for recipe " + urlRecipeTmp +".")
