@@ -8,6 +8,9 @@ Il s'agit d'un simple projet que j'ai utilisé afin d'apprendre les bases du Nod
 
 This is a simple project i use to learn basic Node JS and Mongodb. I found no free database with a free license so I created this scraper to retrieve the free data from the site cuisine-libre.fr.
 
+### Update
+  - 07/05/2017 : le scrapper fonctionne à ce jour / scrapper is working so far.
+
 ## Prérequis / Requirements
   - Mongodb
 
@@ -15,17 +18,27 @@ This is a simple project i use to learn basic Node JS and Mongodb. I found no fr
 Installation avec NPM / Install with npm:
 ```sh
 npm install scraper_cuisine_libre.fr
+cd ./node_modules/scraper_cuisine_libre.fr
+```
+Cloner le dépôt / Clone the repo:
+```sh
+git clone https://github.com/vsteffen/scraper_cuisine-libre.fr
 ```
 
-Dirigez-vous dans le module "scraper_cuisine_libre.fr". Vous trouverez dans ce répertoire le fichier "scraper.js". Vous pouvez changer selon vos besoins les paramètres du scraper tout en haut du fichier scraper.js. En ce qui concerne la base de donnée, ce sera par défaut "localhost", la database s'appellera "scraper_cuisine_libre_fr" dans Mongodb.
+Si vous avez installé avec npm, dirigez-vous dans le module "scraper_cuisine_libre.fr" (./node_modules/scraper_cuisine_libre.fr). Avec github, vous serez directement à la racine.
+Vous trouverez dans ce répertoire le fichier "scraper.js". Vous pouvez changer selon vos besoins les paramètres du scraper tout en haut du fichier scraper.js. En ce qui concerne la base de donnée, ce sera par défaut "localhost", la database s'appellera "scraper_cuisine_libre_fr" dans Mongodb.
 
-Go to the module "scraper_cuisine_libre.fr". You will find in this directory the file "scraper.js". You can change the scraper settings at the top of the "scraper.js" file according to your needs. As for the database, it will be by default "localhost", the database will be called "scraper_cuisine_libre_fr" in Mongodb.
+If you installed with npm, go to the module "scraper_cuisine_libre.fr" (./node_modules/scraper_cuisine_libre.fr). With github, you'll be directly at the root.
+You will find in this directory the file "scraper.js". You can change the scraper settings at the top of the "scraper.js" file according to your needs. As for the database, it will be by default "localhost", the database will be called "scraper_cuisine_libre_fr" in Mongodb.
 
 ## Utilisation / Use
 Une fois votre configuration prête, lancez le scraper avec la commande suivante / Once your configuration is ready, run the scraper with the following command:
 ```sh
 node scraper.js
 ```
+A la fin du script, vous aurez vos données dans votre base de donnée. Au même endroit que le script "scraper.js", vous trouverez également le dossier (par défaut "img") contenant les images des recettes.
+
+At the end of the script, you will have your data in your database. In the same place as the script "scraper.js", you will also find the folder (by default "img") containing the pictures of the recipes.
 
 ## Output
 Avec les paramètres par défaut, vous obtiendrez le résultat suivant dans votre base de donnée / With the default settings, you will get the following example in your database:
